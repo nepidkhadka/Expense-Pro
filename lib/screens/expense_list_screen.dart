@@ -6,182 +6,308 @@ import '../providers/expense_provider.dart';
 import '../providers/category_provider.dart';
 import 'add_expense_screen.dart';
 
+// --- Filter Providers ---
+final searchQueryProvider = StateProvider<String>((ref) => "");
+final selectedCategoryIdProvider = StateProvider<String?>((ref) => null);
+final dateRangeProvider = StateProvider<DateTimeRange?>((ref) => null);
+
 class ExpenseListScreen extends ConsumerWidget {
   const ExpenseListScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final expenses = ref.watch(expenseProvider.notifier).filteredActive;
+    final formatter = NumberFormat('#,##,###');
+
+    // Watch data and filters
+    final allActiveExpenses = ref
+        .watch(expenseProvider.notifier)
+        .filteredActive;
     final categories = ref.watch(categoryProvider);
+    final searchQuery = ref.watch(searchQueryProvider);
+    final selectedCatId = ref.watch(selectedCategoryIdProvider);
+    final dateRange = ref.watch(dateRangeProvider);
+
+    // --- Core Filtering Logic ---
+    final filteredExpenses = allActiveExpenses.where((expense) {
+      final matchesSearch = expense.itemName.toLowerCase().contains(
+        searchQuery.toLowerCase(),
+      );
+      final matchesCategory =
+          selectedCatId == null || expense.categoryId == selectedCatId;
+
+      bool matchesDate = true;
+      if (dateRange != null) {
+        matchesDate =
+            expense.date.isAfter(
+              dateRange.start.subtract(const Duration(days: 1)),
+            ) &&
+            expense.date.isBefore(dateRange.end.add(const Duration(days: 1)));
+      }
+
+      return matchesSearch && matchesCategory && matchesDate;
+    }).toList();
+
+    // Calculate Total for the visible list
+    final double totalVisible = filteredExpenses.fold(
+      0,
+      (sum, item) => sum + item.total,
+    );
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
-        title: const Text("History"),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
+        title: const Text(
+          "History",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          // Date Range Picker Button
+          IconButton(
+            onPressed: () async {
+              final picked = await showDateRangePicker(
+                context: context,
+                firstDate: DateTime(2000),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+                initialDateRange: dateRange,
+              );
+              if (picked != null) {
+                ref.read(dateRangeProvider.notifier).state = picked;
+              }
+            },
+            icon: Icon(
+              Icons.calendar_month_outlined,
+              color: dateRange != null ? theme.colorScheme.primary : null,
+            ),
+          ),
+          // Global Reset
+          if (searchQuery.isNotEmpty ||
+              selectedCatId != null ||
+              dateRange != null)
+            IconButton(
+              onPressed: () {
+                ref.read(searchQueryProvider.notifier).state = "";
+                ref.read(selectedCategoryIdProvider.notifier).state = null;
+                ref.read(dateRangeProvider.notifier).state = null;
+              },
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AddExpenseScreen()),
-          );
-        },
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AddExpenseScreen()),
+        ),
         label: const Text("Add New"),
         icon: const Icon(Icons.add),
       ),
-      body: expenses.isEmpty
-          ? _buildEmptyState(theme)
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-              itemCount: expenses.length,
+      body: Column(
+        children: [
+          // 1. Total Summary Card
+          // _buildSummaryCard(theme, totalVisible, formatter, dateRange),
+
+          // 2. Search Bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: TextField(
+              onChanged: (val) =>
+                  ref.read(searchQueryProvider.notifier).state = val,
+              decoration: InputDecoration(
+                hintText: "Search item name...",
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest
+                    .withOpacity(0.5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+
+          // 3. Category Chips
+          SizedBox(
+            height: 50,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: categories.length + 1,
               itemBuilder: (context, index) {
-                final item = expenses[index];
-
-                // SAFETY CHECK: Prevents crash if category is missing/deleted
-                final category = categories.firstWhere(
-                  (c) => c.id == item.categoryId,
-                  orElse: () =>
-                      CategoryModel(id: 'unknown', name: 'Uncategorized'),
-                );
-
-                return Dismissible(
-                  key: Key(item.id),
-                  direction: DismissDirection.horizontal,
-                  // DELETE Background (Left to Right)
-                  background: _buildSwipeBackground(
-                    alignment: Alignment.centerLeft,
-                    color: theme.colorScheme.errorContainer,
-                    icon: Icons.delete_outline,
-                    iconColor: theme.colorScheme.onErrorContainer,
-                    padding: const EdgeInsets.only(left: 20),
-                  ),
-                  // ARCHIVE Background (Right to Left)
-                  secondaryBackground: _buildSwipeBackground(
-                    alignment: Alignment.centerRight,
-                    color: theme.colorScheme.secondaryContainer,
-                    icon: Icons.inventory_2_outlined,
-                    iconColor: theme.colorScheme.onSecondaryContainer,
-                    padding: const EdgeInsets.only(right: 20),
-                  ),
-                  confirmDismiss: (direction) async {
-                    if (direction == DismissDirection.startToEnd) {
-                      return await _confirmDelete(context, ref, item.id);
-                    } else {
-                      // Archive action
-                      ref
-                          .read(expenseProvider.notifier)
-                          .archiveExpense(item.id);
-                      _showSnackBar(context, "Expense archived");
-                      return true;
-                    }
-                  },
-                  child: _ExpenseCard(
-                    item: item,
-                    categoryName: category.name,
-                    itemName: item.itemName,
-                  ),
+                if (index == 0) {
+                  return _FilterChip(
+                    label: "All",
+                    isSelected: selectedCatId == null,
+                    onTap: () =>
+                        ref.read(selectedCategoryIdProvider.notifier).state =
+                            null,
+                  );
+                }
+                final cat = categories[index - 1];
+                return _FilterChip(
+                  label: cat.name,
+                  isSelected: selectedCatId == cat.id,
+                  onTap: () =>
+                      ref.read(selectedCategoryIdProvider.notifier).state =
+                          cat.id,
                 );
               },
             ),
-    );
-  }
-
-  /// Builds the visual background when swiping
-  Widget _buildSwipeBackground({
-    required Alignment alignment,
-    required Color color,
-    required IconData icon,
-    required Color iconColor,
-    required EdgeInsets padding,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      alignment: alignment,
-      padding: padding,
-      child: Icon(icon, color: iconColor, size: 28),
-    );
-  }
-
-  /// Improved Empty State UI
-  Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.receipt_long_outlined,
-            size: 64,
-            // ignore: deprecated_member_use
-            color: theme.colorScheme.outline.withOpacity(0.5),
           ),
-          const SizedBox(height: 16),
-          Text(
-            "No expenses found",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              // ignore: deprecated_member_use
-              color: theme.colorScheme.onSurface.withOpacity(0.7),
-            ),
-          ),
-          Text(
-            "Tap + to add your first expense",
-            style: TextStyle(color: theme.colorScheme.outline),
+
+          const SizedBox(height: 8),
+
+          // 4. List of Expenses
+          Expanded(
+            child: filteredExpenses.isEmpty
+                ? _buildEmptyState(
+                    theme,
+                    (searchQuery.isNotEmpty ||
+                        selectedCatId != null ||
+                        dateRange != null),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                    itemCount: filteredExpenses.length,
+                    itemBuilder: (context, index) {
+                      final item = filteredExpenses[index];
+                      final category = categories.firstWhere(
+                        (c) => c.id == item.categoryId,
+                        orElse: () =>
+                            CategoryModel(id: 'unknown', name: 'Uncategorized'),
+                      );
+
+                      return Dismissible(
+                        key: Key(item.id),
+                        background: _buildSwipeBackground(
+                          Alignment.centerLeft,
+                          theme.colorScheme.errorContainer,
+                          Icons.delete_outline,
+                        ),
+                        secondaryBackground: _buildSwipeBackground(
+                          Alignment.centerRight,
+                          theme.colorScheme.secondaryContainer,
+                          Icons.inventory_2_outlined,
+                        ),
+                        onDismissed: (dir) {
+                          if (dir == DismissDirection.startToEnd) {
+                            ref
+                                .read(expenseProvider.notifier)
+                                .deleteExpense(item.id);
+                          } else {
+                            ref
+                                .read(expenseProvider.notifier)
+                                .archiveExpense(item.id);
+                          }
+                        },
+                        child: _ExpenseCard(
+                          item: item,
+                          categoryName: category.name,
+                          itemName: item.itemName,
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Future<bool> _confirmDelete(
-    BuildContext context,
-    WidgetRef ref,
-    String id,
-  ) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Delete Expense?"),
-            content: const Text(
-              "This action cannot be undone. Do you want to proceed?",
+  Widget _buildSummaryCard(
+    ThemeData theme,
+    double total,
+    NumberFormat fmt,
+    DateTimeRange? range,
+  ) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            range == null
+                ? "Total Active Spending"
+                : "Spending: ${DateFormat('d MMM').format(range.start)} - ${DateFormat('d MMM').format(range.end)}",
+            style: TextStyle(
+              color: theme.colorScheme.onPrimary.withOpacity(0.8),
+              fontSize: 13,
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text("Cancel"),
-              ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                ),
-                onPressed: () {
-                  ref.read(expenseProvider.notifier).deleteExpense(id);
-                  Navigator.of(ctx).pop(true);
-                  _showSnackBar(context, "Expense deleted");
-                },
-                child: const Text("Delete"),
-              ),
-            ],
           ),
-        ) ??
-        false;
+          const SizedBox(height: 4),
+          Text(
+            "Rs. ${fmt.format(total)}",
+            style: TextStyle(
+              color: theme.colorScheme.onPrimary,
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  void _showSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+  Widget _buildEmptyState(ThemeData theme, bool isFiltering) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            isFiltering ? Icons.filter_list_off : Icons.receipt_long,
+            size: 60,
+            color: theme.colorScheme.outline,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            isFiltering ? "No match found" : "Empty history",
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSwipeBackground(Alignment align, Color color, IconData icon) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      alignment: align,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Icon(icon, color: Colors.white),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  const _FilterChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (_) => onTap(),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
