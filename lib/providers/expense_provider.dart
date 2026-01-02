@@ -26,7 +26,7 @@ class ExpenseNotifier extends StateNotifier<List<ExpenseModel>> {
     final expense = ExpenseModel(
       id: id,
       categoryId: categoryId,
-      itemName: itemName, // Save the item name to Hive
+      itemName: itemName,
       purchaseType: purchaseType,
       quantity: quantity,
       rate: rate,
@@ -38,6 +38,34 @@ class ExpenseNotifier extends StateNotifier<List<ExpenseModel>> {
 
     HiveService.expenseBox.put(id, expense);
     state = HiveService.expenseBox.values.toList();
+  }
+
+  void updateExpense({
+    required String id,
+    required String itemName,
+    required String categoryId,
+    required String purchaseType,
+    required double quantity,
+    required double rate,
+    required double total,
+    String? vendor,
+    String? notes,
+  }) {
+    final index = state.indexWhere((e) => e.id == id);
+    if (index == -1) return;
+
+    state[index] = state[index].copyWith(
+      itemName: itemName,
+      categoryId: categoryId,
+      purchaseType: purchaseType,
+      quantity: quantity,
+      rate: rate,
+      total: total,
+      vendor: vendor,
+      notes: notes,
+    );
+
+    state = [...state]; // refresh list
   }
 
   void deleteExpense(String id) {

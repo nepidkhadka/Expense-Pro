@@ -267,9 +267,16 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
             /// Notes (Optional)
             TextField(
               controller: notesController,
-              decoration: const InputDecoration(
+              minLines: 4,
+              maxLines: null,
+              keyboardType: TextInputType.multiline,
+              textAlignVertical:
+                  TextAlignVertical.top, // makes text start from top
+              decoration: InputDecoration(
                 labelText: "Notes (Optional)",
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
             ),
             const SizedBox(height: 16),

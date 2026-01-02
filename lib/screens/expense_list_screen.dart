@@ -1,4 +1,6 @@
 import 'package:expense_pro/models/category_model.dart';
+import 'package:expense_pro/screens/edit_expense_screen.dart';
+import 'package:expense_pro/screens/expense_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -190,21 +192,100 @@ class ExpenseListScreen extends ConsumerWidget {
                           theme.colorScheme.secondaryContainer,
                           Icons.inventory_2_outlined,
                         ),
-                        onDismissed: (dir) {
-                          if (dir == DismissDirection.startToEnd) {
-                            ref
-                                .read(expenseProvider.notifier)
-                                .deleteExpense(item.id);
-                          } else {
-                            ref
-                                .read(expenseProvider.notifier)
-                                .archiveExpense(item.id);
+
+                        confirmDismiss: (direction) async {
+                          if (direction == DismissDirection.startToEnd) {
+                            // DELETE CONFIRMATION
+                            final shouldDelete = await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text("Delete Expense?"),
+                                content: const Text(
+                                  "Are you sure you want to delete this expense? This action cannot be undone.",
+                                ),
+                                actions: [
+                                  TextButton(
+                                    child: const Text("Cancel"),
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                  ),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red,
+                                    ),
+                                    child: const Text("Delete"),
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            if (shouldDelete == true) {
+                              ref
+                                  .read(expenseProvider.notifier)
+                                  .deleteExpense(item.id);
+                            }
+
+                            return shouldDelete ?? false;
+                          }
+                          // ARCHIVE CONFIRMATION
+                          else {
+                            final shouldArchive = await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text("Archive Expense?"),
+                                content: const Text(
+                                  "Do you want to archive this expense? You can restore it later.",
+                                ),
+                                actions: [
+                                  TextButton(
+                                    child: const Text("Cancel"),
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                  ),
+                                  ElevatedButton(
+                                    child: const Text("Archive"),
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            if (shouldArchive == true) {
+                              ref
+                                  .read(expenseProvider.notifier)
+                                  .archiveExpense(item.id);
+                            }
+
+                            return shouldArchive ?? false;
                           }
                         },
-                        child: _ExpenseCard(
-                          item: item,
-                          categoryName: category.name,
-                          itemName: item.itemName,
+
+                        /// 👇 **WRAPPED WITH GESTURE DETECTOR**
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ExpenseDetailScreen(item: item),
+                              ),
+                            );
+                          },
+                          onLongPress: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => EditExpenseScreen(item: item),
+                              ),
+                            );
+                          },
+                          child: _ExpenseCard(
+                            item: item,
+                            categoryName: category.name,
+                            itemName: item.itemName,
+                          ),
                         ),
                       );
                     },

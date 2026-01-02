@@ -51,4 +51,32 @@ class ExpenseModel extends HiveObject {
     this.notes,
     this.isArchived = false,
   });
+
+  ExpenseModel copyWith({
+    String? id,
+    String? categoryId,
+    String? itemName,
+    String? purchaseType,
+    double? quantity,
+    double? rate,
+    double? total,
+    String? vendor,
+    DateTime? date,
+    String? notes,
+    bool? isArchived,
+  }) {
+    return ExpenseModel(
+      id: id ?? this.id,
+      categoryId: categoryId ?? this.categoryId,
+      itemName: itemName ?? this.itemName,
+      purchaseType: purchaseType ?? this.purchaseType,
+      quantity: quantity ?? this.quantity,
+      rate: rate ?? this.rate,
+      total: total ?? this.total,
+      vendor: vendor ?? this.vendor,
+      date: date ?? this.date,
+      notes: notes ?? this.notes,
+      isArchived: isArchived ?? this.isArchived,
+    );
+  }
 }
